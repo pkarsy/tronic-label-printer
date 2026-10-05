@@ -1,0 +1,5 @@
+# The built binary: build it yourself with a plain `go build`.
+/label
+
+# Local state of the coding agent that helped write this.
+/.reasonix
