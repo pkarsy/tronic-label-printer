@@ -1,11 +1,12 @@
 # label
 
 > **No warranty, no liability.** This is a personal tool, shared in case it is
-> useful. It writes raw commands to a physical device, so use it at your own risk:
-> I accept no responsibility for any damage, loss, accident or injury arising from
-> its use. See [LICENSE](LICENSE). Not affiliated with Lidl or the printer's
-> manufacturer; *Tronic* and *Lidl* are their owners' trademarks, named here only
-> to say what this works with.
+> useful. Use it at your own risk. See [LICENSE](LICENSE). Not affiliated with
+> Lidl or the printer's manufacturer; *Tronic* and *Lidl* are their owners'
+> trademarks, named here only to say what this works with.
+
+![A label printed by this tool: the word LABEL in bold black capitals, filling
+the 12 mm × 30 mm label](label.png)
 
 Print small text labels on the **Tronic Thermal Label Printer** (Lidl's own
 brand; article IAN 517574_2510, labelled Model 6326) over **classic Bluetooth
@@ -14,14 +15,6 @@ SPP**, straight from the command line — no phone app.
 ```sh
 ./label "Hello World"
 ```
-
-The official app talks to this printer over classic Bluetooth SPP (RFCOMM
-channel 1), **not** BLE. This tool does the same, so it prints correctly with no
-GATT/BLE quirks.
-
-The command set was **reverse-engineered from the official app's own Bluetooth
-traffic** (a `btsnoop` HCI capture) and then verified against the hardware —
-see [PROTOCOL.md](PROTOCOL.md).
 
 ## Why this instead of the app?
 
@@ -33,8 +26,7 @@ see [PROTOCOL.md](PROTOCOL.md).
 
 It earned its keep on day one: about 200 labels in, with the printer bought to
 label boxes of electronic parts, I have had no reason to open the phone app
-again — not even for the printer's own settings, since `-status` shows the auto
-power-off timer and `-auto-off N` changes it.
+again.
 
 ## Requirements
 
@@ -67,31 +59,18 @@ Linux has no Bluetooth adapter at all and the printer is unreachable.
 
 ## Build
 
-Pure Go — **no cgo and no C toolchain** required. It builds into a single static
-binary called **`label`**:
+Pure Go — **no cgo and no C toolchain** required. A bare `go build` gives you
+`label`:
 
 ```sh
 go build
 ```
 
-That is all: the module is named after the command, so a bare `go build` gives
-you `label`, with no flags to remember.
-
-For the release build — statically linked, stripped, and with this machine's
-paths kept out of the binary — there is a script:
+Or for a smaller binary
 
 ```sh
 ./build.sh          # CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath
 ```
-
-Those flags cut the binary by about a third (4.7 MB → 3.1 MB here), essentially
-all of it from `-s -w`, which drops the symbol table and the debug info;
-`-trimpath` only keeps the build directory out of the binary. The cost of a
-stripped binary is that a panic reports function names but no line numbers, so
-use a plain `go build` while debugging.
-
-(The only cgo-aware dependency is `net`, pulled in by the line editor for a
-feature this tool does not use, so disabling cgo costs nothing.)
 
 ## Usage
 
@@ -208,6 +187,9 @@ both its true level and a flat 100%, so a comment about charging would be a gues
 Nor does the charger change anything else — the auto-off timer runs while it is
 plugged in too, so being on charge is no reason to expect it awake.
 
+The printer's own settings are here too: the auto-off timer shown above is read
+by `-status` and changed with `-auto-off N`.
+
 ### Text rules
 
 | Input | Result |
@@ -226,9 +208,8 @@ least 1.5×), so short titles stay on one line and only long text wraps.
 -w N        print head width in pixels (default 96)
 -font N     font size (default 0 = auto-fill)
 -len MM     label length in mm (default 30)
--rotate D   image rotation 0|90|180|270 (default 90)
 -label      gapped tape: advance to the next label (default true)
--addr MAC   use a fixed Bluetooth Classic address (skips the name lookup)
+-addr MAC   use a fixed Bluetooth address (skips the name lookup)
 -name NAME  Bluetooth name to look up (default "ML Printer")
 -idle SEC   session mode idle timeout (default 600 = 10 minutes)
 -lines N    maximum text lines (default 2)
@@ -297,6 +278,8 @@ and sizes/positions it to fill the label.
   link, so it may break as time passes — the IAN printed on the device is the
   durable identifier, and any Lidl country's service site finds the manual with
   it.
+- **PROTOCOL.md** — the command set, reverse-engineered from the official app's
+  Bluetooth traffic and verified against the hardware.
 
 ## Development
 

@@ -71,6 +71,18 @@ const (
 	// outside the printable area). This is also settable with -w.
 	printWidthPx = 96
 
+	// The raster is rotated 90° clockwise, so the text reads along the tape:
+	// the rendered text is a page laid out across the label - its height on the
+	// print head (96 dots = 12 mm), its width along the label - and rotating it
+	// turns that into one raster row per step of the tape.
+	//
+	// This is not a preference: any other angle puts the raster on the head
+	// sideways. At 0° and 180° the raster is as wide as the rendered text - 213
+	// to 224 dots, i.e. 27-28 bytes per row, for ordinary titles at the default
+	// -len 30 - and anything past a single character overflows the head, which
+	// is 96 dots = 12 bytes wide.
+	rasterRotateDeg = 90
+
 	// Minimum characters per line for the AUTOMATIC word split. A short word
 	// (e.g. 5 letters) is not split - it would become two tiny fragments that
 	// are hard to read.
@@ -127,7 +139,6 @@ type config struct {
 	width      int
 	fontSize   float64
 	labelLenMM float64
-	rotate     int
 	label      bool
 	maxLines   int
 }
@@ -136,7 +147,6 @@ func main() {
 	width := flag.Int("w", printWidthPx, "print head width in pixels (96 for this printer)")
 	fontSize := flag.Float64("font", 0, "font size (0 = auto-fill the label)")
 	labelLenMM := flag.Float64("len", 30, "label length in mm (0 = fill width only)")
-	rotate := flag.Int("rotate", 90, "image rotation in degrees: 0|90|180|270")
 	label := flag.Bool("label", true, "gapped tape: advance to the next label")
 	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -name)")
 	name := flag.String("name", printerName, "Bluetooth name to look up when -addr is empty")
@@ -166,7 +176,7 @@ func main() {
 	}
 	flag.Parse()
 
-	cfg := config{*width, *fontSize, *labelLenMM, *rotate, *label, *maxLines}
+	cfg := config{*width, *fontSize, *labelLenMM, *label, *maxLines}
 
 	// -auto-off is a write, and 0 is NOT a way to ask for "never": the printer
 	// rejects it as a setting. Distinguish "not given" from "given 0" so a
@@ -786,8 +796,8 @@ func (c *sppConn) waitDone(timeout time.Duration) bool {
 // renderLabel draws the image and turns it into the printer's raster job. It
 // also returns the raster height (for the wait time).
 //
-// The text grows to fill the label: after the rotation (see -rotate) its height
-// lands on the print head, i.e. across the label (96 dots = 12 mm),
+// The text grows to fill the label: after the rotation (rasterRotateDeg) its
+// height lands on the print head, i.e. across the label (96 dots = 12 mm),
 // and its length runs along the label.
 //
 // Two-line split (see -lines): the text is split at the best-balancing space if
@@ -876,10 +886,10 @@ func renderImage(cfg config, text string) (image.Image, error) {
 		dc.DrawStringAnchored(ln, float64(cw)/2, y, 0.5, 0)
 	}
 
-	// The raster orientation is 90°: the text reads along the tape. Then it is
-	// centred on the head width, so it does not lean left when it does not fill
-	// 100% of the width.
-	img := centerWidth(rotateImage(dc.Image(), cfg.rotate), cfg.width)
+	// The text is laid out across the tape (readable), then turned so it reads
+	// along it: see rasterRotateDeg. Centring on the head width then keeps it
+	// from leaning left when the text does not fill 100% of the width.
+	img := centerWidth(rotateImage(dc.Image(), rasterRotateDeg), cfg.width)
 
 	// Also centre it ALONG the label: pad the raster up to the label length
 	// (-len) so the text does not stick to the start.
@@ -921,11 +931,11 @@ func runSaveImage(cfg config, text string, border bool, scale int) {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
-	// The raster is turned so the text reads along the tape (-rotate, default
-	// 90° clockwise). A picture you look at on screen is easier with the text
-	// horizontal, so turn the same amount back - 90° counter-clockwise by
-	// default. Only the .png is affected; what gets printed is untouched.
-	img = rotateImage(img, -cfg.rotate)
+	// The raster is turned so the text reads along the tape (rasterRotateDeg,
+	// 90° clockwise), and a picture you look at on screen is easier with the
+	// text horizontal: turn the same amount back. Only the .png is affected;
+	// what gets printed is untouched.
+	img = rotateImage(img, -rasterRotateDeg)
 	// A label is mostly white, so on a white page in a viewer its edges simply
 	// vanish. A one-pixel frame shows where the label is. Again: the picture
 	// only, never the tape.
@@ -1264,8 +1274,9 @@ func buildJob(raster []byte, widthBytes, height int, label bool) []byte {
 }
 
 // rotateImage rotates the image by deg degrees (0/90/180/270), changing the
-// dimensions where needed. It is used to match the text orientation to the way
-// this particular model prints.
+// dimensions where needed. It is called twice: 90° to turn the rendered text so
+// it reads along the tape (rasterRotateDeg), and the same amount back for the
+// .png that -save-image writes.
 func rotateImage(src image.Image, deg int) image.Image {
 	deg = ((deg % 360) + 360) % 360
 	if deg == 0 {
