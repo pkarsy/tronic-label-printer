@@ -202,26 +202,6 @@ A two-line layout is used **only when it makes the font clearly bigger** (at
 least 1.5×), so short titles stay on one line and only long text wraps.
 `-lines 1` disables the split entirely; `-font N` forces a fixed font size.
 
-### Options, usually not needed
-
-```
--w N        print head width in pixels (default 96)
--font N     font size (default 0 = auto-fill)
--len MM     label length in mm (default 30)
--label      gapped tape: advance to the next label (default true)
--addr MAC   use a fixed Bluetooth address (skips the name lookup)
--name NAME  Bluetooth name to look up (default "ML Printer")
--idle SEC   session mode idle timeout (default 600 = 10 minutes)
--lines N    maximum text lines (default 2)
--status     show the printer status (model, battery, paper) and exit
--auto-off N set the printer's auto power-off timer to N minutes (N >= 1; leave
-            the flag out to change nothing). A small value = print and let it
-            shut itself down; 5-15 min suits a session you keep coming back to.
--save-image with TEXT: write the label as a .png here instead of printing
--border     with -save-image: one-pixel black frame around the image
--scale N    with -save-image: enlarge by N (1-16), nearest neighbour
-```
-
 ## Why text only?
 
 The labels are tiny: about **12 mm × 30 mm**, i.e. a 96 × 240 dot bitmap at
@@ -260,6 +240,26 @@ and sizes/positions it to fill the label.
 - Built and tested only with the **official Tronic (Lidl) labels** (the 12 mm
   tape that comes with the printer). Other label stock may have a different
   gap/size, so the fit and the auto-alignment may differ.
+
+## Options, usually not needed
+
+```
+-w N        print head width in pixels (default 96)
+-font N     font size (default 0 = auto-fill)
+-len MM     label length in mm (default 30)
+-label      gapped tape: advance to the next label (default true)
+-addr MAC   use a fixed Bluetooth address (skips the name lookup)
+-name NAME  Bluetooth name to look up (default "ML Printer")
+-idle SEC   session mode idle timeout (default 600 = 10 minutes)
+-lines N    maximum text lines (default 2)
+-status     show the printer status (model, battery, paper) and exit
+-auto-off N set the printer's auto power-off timer to N minutes (N >= 1; leave
+            the flag out to change nothing). A small value = print and let it
+            shut itself down; 5-15 min suits a session you keep coming back to.
+-save-image with TEXT: write the label as a .png here instead of printing
+-border     with -save-image: one-pixel black frame around the image
+-scale N    with -save-image: enlarge by N (1-16), nearest neighbour
+```
 
 ## Links
 
