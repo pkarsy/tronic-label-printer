@@ -241,7 +241,7 @@ and sizes/positions it to fill the label.
   tape that comes with the printer). Other label stock may have a different
   gap/size, so the fit and the auto-alignment may differ.
 
-## Options, usually not needed
+## Options, full list
 
 ```
 -w N        print head width in pixels (default 96)
