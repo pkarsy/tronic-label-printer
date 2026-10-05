@@ -1,4 +1,4 @@
-# label
+# tronic-label-printer
 
 > **No warranty, no liability.** This is a personal tool, shared in case it is
 > useful. Use it at your own risk. See [LICENSE](LICENSE). Not affiliated with
