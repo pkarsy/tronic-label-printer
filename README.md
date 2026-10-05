@@ -66,7 +66,7 @@ Pure Go — **no cgo and no C toolchain** required. A bare `go build` gives you
 go build
 ```
 
-Or for a smaller binary
+Or, for a smaller binary:
 
 ```sh
 ./build.sh          # CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath
@@ -248,9 +248,10 @@ and sizes/positions it to fill the label.
 -font N     font size (default 0 = auto-fill)
 -len MM     label length in mm (default 30)
 -label      gapped tape: advance to the next label (default true)
--addr MAC   use a fixed Bluetooth address (skips the name lookup)
+-addr MAC   use a fixed Bluetooth Classic address (skips the name lookup)
 -name NAME  Bluetooth name to look up (default "ML Printer")
 -idle SEC   session mode idle timeout (default 600 = 10 minutes)
+-once       with TEXT: print that label and exit, do not stay for more
 -lines N    maximum text lines (default 2)
 -status     show the printer status (model, battery, paper) and exit
 -auto-off N set the printer's auto power-off timer to N minutes (N >= 1; leave
