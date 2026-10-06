@@ -14,6 +14,7 @@ SPP**, straight from the command line — no phone app.
 
 ```sh
 ./label "Hello World"
+./label Hello World          # the same: the words are joined
 ```
 
 ## Why this instead of the phone app?
