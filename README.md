@@ -32,14 +32,14 @@ again.
 ## Requirements
 
 - Linux with BlueZ. The tool finds the printer by its Bluetooth name
-  (**"ML Printer"**), so no MAC address is needed — and **no pairing is
-  required**. It remembers the address it found (in `$XDG_CACHE_HOME/label/addr`)
-  and uses that from then on, which is worth having because BlueZ forgets a
-  printer it merely discovered after a couple of minutes. A remembered address is
-  dropped only if it turns out to be invalid: a printer that is merely switched
-  off (or busy) keeps it, so an idle printer never costs a scan. `-addr` pins a
-  specific address instead, and is never cached. Note that `ML Printer_BLE` is
-  the wrong device: this tool uses Bluetooth Classic, not BLE.
+  (**"ML Printer"**, a fixed name, the same on every unit), so no MAC address is
+  needed — and **no pairing is required**. It remembers the address it found (in
+  `$XDG_CACHE_HOME/label/addr`) and uses that from then on, which is worth having
+  because BlueZ forgets a printer it merely discovered after a couple of minutes.
+  A remembered address is dropped only if it turns out to be invalid: a printer
+  that is merely switched off (or busy) keeps it, so an idle printer never costs
+  a scan. `-addr` pins a specific address instead, and is never cached. Note that
+  `ML Printer_BLE` is the wrong device: this tool uses Bluetooth Classic, not BLE.
 - Go 1.26+ to build.
 
 ## Platform
@@ -203,7 +203,7 @@ changed.
 
 A two-line layout is used **only when it makes the font clearly bigger** (at
 least 1.5×), so short titles stay on one line and only long text wraps.
-`-lines 1` disables the split entirely; `-font N` forces a fixed font size.
+`-lines 1` disables the split entirely; `-fontsize N` forces a fixed font size.
 
 ## Why text only?
 
@@ -223,7 +223,7 @@ and sizes/positions it to fill the label.
   every label, so it never silently prints nothing.
 - **"no Bluetooth device named ... found"** — the printer is off or out of
   range (or has never been discovered). Switch it on and retry, or point
-  `-name` / `-addr` at it.
+  `-btname` / `-addr` at it.
 - **"the printer is on ... but its Bluetooth Classic radio did not"** — the
   printer is powered on, but something else holds its Classic link — normally
   the phone app. Close it and retry. (Its BLE radio stays visible while the
@@ -248,12 +248,14 @@ and sizes/positions it to fill the label.
 
 ```
 -w N        print head width in pixels (default 96)
--font N     font size (default 0 = auto-fill)
+-fontsize N font size (default 0 = auto-fill)
 -fontfile   use this font file instead of the one found on the system
 -len MM     label length in mm (default 30)
 -label      gapped tape: advance to the next label (default true)
 -addr MAC   use a fixed Bluetooth Classic address (skips the name lookup)
--name NAME  Bluetooth name to look up (default "ML Printer")
+-btname NAME Bluetooth Classic name to look up (default "ML Printer", the
+            printer's own fixed name; another name probably means a different
+            revision)
 -idle SEC   session mode idle timeout (default 600 = 10 minutes)
 -once       with TEXT: print that label and exit, do not stay for more
 -lines N    maximum text lines (default 2)

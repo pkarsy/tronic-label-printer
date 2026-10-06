@@ -147,12 +147,12 @@ type config struct {
 
 func main() {
 	width := flag.Int("w", printWidthPx, "print head width in pixels (96 for this printer)")
-	fontSize := flag.Float64("font", 0, "font size (0 = auto-fill the label)")
+	fontSize := flag.Float64("fontsize", 0, "font size (0 = auto-fill the label)")
 	labelLenMM := flag.Float64("len", 30, "label length in mm (0 = fill width only)")
 	fontFile := flag.String("fontfile", "", "font file to use instead of the one found on the system")
 	label := flag.Bool("label", true, "gapped tape: advance to the next label")
-	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -name)")
-	name := flag.String("name", printerName, "Bluetooth name to look up when -addr is empty")
+	name := flag.String("btname", printerName, "Bluetooth Classic name to look up when -addr is empty; the printer's own name is fixed, so another name probably means a different revision")
+	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -btname)")
 	idle := flag.Int("idle", 600, "session mode: exit after N seconds without input")
 	maxLines := flag.Int("lines", 2, "maximum text lines (1 = never split in two)")
 	status := flag.Bool("status", false, "show printer status (model, battery, paper) and exit")
@@ -174,7 +174,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  -save-image: with TEXT, write the label as a .png in the current directory instead of printing.")
 		fmt.Fprintln(os.Stderr, "  -border: with -save-image, draw a one-pixel black frame so the label's edges are visible.")
 		fmt.Fprintln(os.Stderr, "  -scale N: with -save-image, enlarge the picture by N (1-16) - nearest neighbour, so dots stay crisp.")
-		fmt.Fprintln(os.Stderr, "  The printer is looked up by Bluetooth name (-name, default \"ML Printer\"); -addr pins a fixed address.")
+		fmt.Fprintln(os.Stderr, "  The printer is looked up by Bluetooth name (-btname); it advertises \"ML Printer\",")
+		fmt.Fprintln(os.Stderr, "     a fixed name, so that default rarely needs changing. -addr pins a fixed address instead.")
 		fmt.Fprintln(os.Stderr, "\nOptions:")
 		flag.PrintDefaults()
 	}
