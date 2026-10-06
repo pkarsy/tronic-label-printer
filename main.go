@@ -178,8 +178,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  -save-image: with TEXT, write the label as a .png in the current directory instead of printing.")
 		fmt.Fprintln(os.Stderr, "  -border: with -save-image, draw a one-pixel black frame so the label's edges are visible.")
 		fmt.Fprintln(os.Stderr, "  -scale N: with -save-image, enlarge the picture by N (1-16) - nearest neighbour, so dots stay crisp.")
-		fmt.Fprintln(os.Stderr, "  The printer is looked up by Bluetooth name (-btname); it advertises \"ML Printer\",")
-		fmt.Fprintln(os.Stderr, "     a fixed name, so that default rarely needs changing. -addr pins a fixed address instead.")
+		fmt.Fprintln(os.Stderr, "  The printer is looked up by Bluetooth name (-btname, default \"ML Printer\"); -addr pins a fixed address.")
 		fmt.Fprintln(os.Stderr, "\nOptions:")
 		flag.PrintDefaults()
 	}
