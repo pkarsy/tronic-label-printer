@@ -76,6 +76,13 @@ Or, for a smaller binary:
 ./build.sh          # CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath
 ```
 
+One static file, nothing to install around it — put it on the PATH to type
+`label` from anywhere:
+
+```sh
+ln -s "$PWD/label" ~/bin/     # any directory on your PATH
+```
+
 ## Usage
 
 ```sh
