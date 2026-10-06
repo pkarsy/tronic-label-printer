@@ -60,7 +60,7 @@ All control commands begin with `10 FF` (`0x10` = DLE, `0xFF` = prefix byte).
 D11s it makes the printer switch itself off almost immediately, but **on this
 printer it does not** - writing 0 only zeroed the timer, and the printer was
 still answering 90 s later. (It is not "never" here either; it is simply not a
-setting the app offers.)
+setting the Android app offers.)
 
 The timer does work: after that many minutes without Bluetooth activity the
 printer switches itself off. So the value is a **strategy, not a command** - a

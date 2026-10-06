@@ -61,7 +61,7 @@ const (
 	density = 0x01
 	// Paper feed at the end of a job (non-label mode), in dots.
 	feedDots = 80
-	// After 1D 0C the official app feeds another 40 dots (1B 4A 28).
+	// After 1D 0C the official Android app feeds another 40 dots (1B 4A 28).
 	labelFeedDots = 0x28
 
 	// Print head width in pixels: 96 dots = 12 mm = 12 bytes per raster row.
@@ -320,7 +320,7 @@ func runStatus(addr, name string) {
 		fmt.Printf("  Firmware:  %s\n", v)
 	}
 	// The "10 FF 70" record is "name|classicMAC|BLEMAC|firmware|serial|battery";
-	// the app shows that serial as the "Device ID".
+	// the Android app shows that serial as the "Device ID".
 	if v, ok := conn.queryText([]byte{0x10, 0xff, 0x70}); ok {
 		if f := strings.Split(v, "|"); len(f) >= 5 {
 			fmt.Printf("  Device ID: %s\n", f[4])
@@ -599,7 +599,7 @@ func connect(addr, name string) (*sppConn, error) {
 	if err != nil {
 		fmt.Printf("Connection failed: %v\n", err)
 		if errors.Is(err, syscall.EBUSY) {
-			fmt.Println("The printer is busy (connected to the app or to a stale link). Close the other connection and retry.")
+			fmt.Println("The printer is busy (connected to the phone app or to a stale link). Close the other connection and retry.")
 		} else if errors.Is(err, syscall.EHOSTDOWN) {
 			fmt.Println("The address is known but the printer does not answer - is it switched on and in range?")
 		} else {
@@ -1330,8 +1330,8 @@ func parseBDAddr(s string) ([6]byte, error) {
 	return addr, nil
 }
 
-// buildJob frames the raster into the same sequence the official app uses
-// ("confirmed working"):
+// buildJob frames the raster into the same sequence the official Android app
+// uses ("confirmed working"):
 // density -> wake -> enable -> GS v 0 -> [form feed | feed] -> stop job.
 //
 // With label=true it sends 1D 0C (form feed / "position next label") after the
@@ -1342,7 +1342,7 @@ func buildJob(raster []byte, widthBytes, height int, label bool) []byte {
 
 	// 10 FF 10 00 nn - print density
 	job = append(job, 0x10, 0xff, 0x10, 0x00, density)
-	// 12 null bytes - wake. BEFORE the enable, like the official app's
+	// 12 null bytes - wake. BEFORE the enable, like the official Android app's
 	// "confirmed working" sequence. With enable-before-wake the printer reverses
 	// and runs into the mechanical stop right at the start of the job.
 	job = append(job, make([]byte, 12)...)
@@ -1358,7 +1358,7 @@ func buildJob(raster []byte, widthBytes, height int, label bool) []byte {
 	if label {
 		// 1D 0C - form feed / advance to the next label. THIS aligns.
 		job = append(job, labelNext...)
-		// 1B 4A 28 - the app feeds another 40 dots after the form feed.
+		// 1B 4A 28 - the Android app feeds another 40 dots after the form feed.
 		job = append(job, 0x1b, 0x4a, labelFeedDots)
 	} else {
 		// 1B 4A nn - paper feed

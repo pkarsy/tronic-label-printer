@@ -16,13 +16,14 @@ SPP**, straight from the command line — no phone app.
 ./label "Hello World"
 ```
 
-## Why this instead of the app?
+## Why this instead of the phone app?
 
-- **Much faster.** Type a line and press Enter — no app to open, no menus, no
-  re-pairing dance. (Session mode keeps the connection open for a whole session.)
+- **Much faster.** Type a line and press Enter — no phone app to open, no menus,
+  no re-pairing dance. (Session mode keeps the connection open for a whole
+  session.)
 - **No manual font fiddling.** The label is tiny (12 mm × 30 mm), so there is
-  very little room. The app makes you pick a font and a size by hand to use it;
-  here the text is auto-fitted to fill the label.
+  very little room. The phone app makes you pick a font and a size by hand to
+  use it; here the text is auto-fitted to fill the label.
 
 It earned its keep on day one: about 200 labels in, with the printer bought to
 label boxes of electronic parts, I have had no reason to open the phone app
@@ -283,8 +284,8 @@ and sizes/positions it to fill the label.
   link, so it may break as time passes — the IAN printed on the device is the
   durable identifier, and any Lidl country's service site finds the manual with
   it.
-- **PROTOCOL.md** — the command set, reverse-engineered from the official app's
-  Bluetooth traffic and verified against the hardware.
+- **PROTOCOL.md** — the command set, reverse-engineered from the official
+  Android app's Bluetooth traffic and verified against the hardware.
 
 ## Development
 
