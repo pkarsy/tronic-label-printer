@@ -51,7 +51,8 @@ not planned. Everything that touches the system is Linux-specific:
   Bluetooth serial as a COM port instead;
 - the printer is found through BlueZ (`bluetoothctl`);
 - the idle-exit restores the terminal with Linux termios (`TCGETS`/`TCSETS`);
-- the font is read from `/usr/share/fonts/truetype/dejavu/`.
+- the font is looked up on the system: the usual DejaVu paths first, then
+  whatever `fc-match sans:bold` offers; `-fontfile PATH` uses a font of your own.
 
 It does not build on Windows (there is no `x/sys/unix` there), and **WSL2 is not
 a way around that**: the stock WSL2 kernel is built without `CONFIG_BT`, so its
@@ -246,6 +247,7 @@ and sizes/positions it to fill the label.
 ```
 -w N        print head width in pixels (default 96)
 -font N     font size (default 0 = auto-fill)
+-fontfile   use this font file instead of the one found on the system
 -len MM     label length in mm (default 30)
 -label      gapped tape: advance to the next label (default true)
 -addr MAC   use a fixed Bluetooth Classic address (skips the name lookup)

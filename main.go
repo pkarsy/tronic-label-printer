@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -139,6 +140,7 @@ type config struct {
 	width      int
 	fontSize   float64
 	labelLenMM float64
+	fontFile   string
 	label      bool
 	maxLines   int
 }
@@ -147,6 +149,7 @@ func main() {
 	width := flag.Int("w", printWidthPx, "print head width in pixels (96 for this printer)")
 	fontSize := flag.Float64("font", 0, "font size (0 = auto-fill the label)")
 	labelLenMM := flag.Float64("len", 30, "label length in mm (0 = fill width only)")
+	fontFile := flag.String("fontfile", "", "font file to use instead of the one found on the system")
 	label := flag.Bool("label", true, "gapped tape: advance to the next label")
 	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -name)")
 	name := flag.String("name", printerName, "Bluetooth name to look up when -addr is empty")
@@ -176,7 +179,7 @@ func main() {
 	}
 	flag.Parse()
 
-	cfg := config{*width, *fontSize, *labelLenMM, *label, *maxLines}
+	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *label, *maxLines}
 
 	// -auto-off is a write, and 0 is NOT a way to ask for "never": the printer
 	// rejects it as a setting. Distinguish "not given" from "given 0" so a
@@ -194,6 +197,18 @@ func main() {
 		fmt.Println("       Use 5-15 when you keep coming back to the printer, or 1-2 for a")
 		fmt.Println("       print-and-shut-down setup.")
 		os.Exit(2)
+	}
+
+	// A bad -fontfile is the user's own mistake, and it can be reported before
+	// anything talks to the printer - otherwise the tool would scan, connect and
+	// only then refuse to draw.
+	if *fontFile != "" {
+		if err := loadFontFile(*fontFile); err != nil {
+			fmt.Printf("Error: cannot use -fontfile %s: %v\n", *fontFile, err)
+			fmt.Println("       A TrueType .ttf works; a .ttc collection does not (the font parser")
+			fmt.Println("       cannot read one). With no -fontfile, the font is found on the system.")
+			os.Exit(2)
+		}
 	}
 
 	if *saveImage {
@@ -809,7 +824,10 @@ func (c *sppConn) waitDone(timeout time.Duration) bool {
 // the label. renderLabel turns this bitmap into bytes and -save-image writes it
 // out as a PNG, so the picture and the print agree by construction.
 func renderImage(cfg config, text string) (image.Image, error) {
-	fontPath := "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+	fontPath, err := resolveFont(cfg.fontFile)
+	if err != nil {
+		return nil, err
+	}
 
 	// Width from gg (its advances match what it draws), but height from the
 	// font itself - gg reports a line height that is far too small.
@@ -1024,6 +1042,83 @@ func askOverwrite(name string) bool {
 		return true
 	}
 	return false
+}
+
+// fontCandidates are tried before fontconfig is asked. DejaVu comes first
+// because it is the font these labels have been sized and verified with, and the
+// three paths are the usual Debian/Ubuntu, Fedora and Arch layouts. Everything
+// else - another font, another layout, fonts kept in ~/.fonts - is fontconfig's
+// job (see findFont).
+var fontCandidates = []string{
+	"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+	"/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+	"/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+}
+
+// resolveFont returns the font file to render with: -fontfile if given,
+// otherwise the first place on the system that has one (findFont). The result is
+// resolved once per process, so a session does not pay for the lookup per label.
+func resolveFont(explicit string) (string, error) {
+	if explicit != "" {
+		if err := loadFontFile(explicit); err != nil {
+			return "", fmt.Errorf("cannot use -fontfile %s: %w", explicit, err)
+		}
+		return explicit, nil
+	}
+	fontOnce.Do(func() { fontPath, fontErr = findFont() })
+	return fontPath, fontErr
+}
+
+var (
+	fontOnce sync.Once
+	fontPath string
+	fontErr  error
+)
+
+// findFont looks for a bold font the way the system itself would. The known
+// paths come first, so a machine that has DejaVu keeps printing the labels it
+// always did; otherwise fontconfig is asked, which reads its own configuration
+// and so covers whatever layout the distro uses plus fonts in ~/.fonts and
+// ~/.local/share/fonts. DejaVu is an optional package on Debian and is absent
+// from minimal installs, so this fallback is the difference between working and
+// a hard-coded path that exists nowhere.
+func findFont() (string, error) {
+	for _, p := range fontCandidates {
+		if loadFontFile(p) == nil {
+			return p, nil
+		}
+	}
+	// fontconfig lists every match best-first. We take the first that this tool
+	// can actually read, because the answer may be a .ttc collection, which the
+	// freetype parser rejects ("bad TTF version").
+	if out, err := runFcMatch(); err == nil {
+		for _, p := range strings.Split(string(out), "\n") {
+			if p = strings.TrimSpace(p); p != "" && loadFontFile(p) == nil {
+				return p, nil
+			}
+		}
+	}
+	return "", errors.New("no bold font found on this system: the usual DejaVu paths are missing and fontconfig offered nothing readable - pass -fontfile PATH")
+}
+
+// runFcMatch asks fontconfig for every font matching a bold sans, best first.
+// Like bluetoothctl, fc-match gets a timeout: a broken fontconfig should not
+// hang the tool.
+func runFcMatch() ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "fc-match", "-a", "-f", "%{file}\n", "sans:bold").Output()
+}
+
+// loadFontFile reports whether the file is there and parses. It is the same
+// check gg and fontMetrics make, so a font accepted here cannot fail later.
+func loadFontFile(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	_, err = truetype.Parse(b)
+	return err
 }
 
 // fontMetrics returns the font's REAL ascent and descent at this size. gg's
