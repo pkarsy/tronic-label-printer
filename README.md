@@ -15,6 +15,7 @@ SPP**, straight from the command line — no phone app.
 ```sh
 ./label "Hello World"
 ./label Hello World          # the same: the words are joined
+./label 'BOX\n12'            # \n breaks the line
 ```
 
 ## Why this instead of the phone app?
@@ -209,10 +210,13 @@ changed.
 | a space | allowed split point for two lines |
 | a long single word | auto-split in two lines too |
 | `-` | a plain character — type it yourself, e.g. `MATH- EMATICS` |
+| `\n` | break the line exactly there, e.g. `'BOX\n12'` |
 
 A two-line layout is used **only when it makes the font clearly bigger** (at
-least 1.5×), so short titles stay on one line and only long text wraps.
-`-lines 1` disables the split entirely; `-fontsize N` forces a fixed font size.
+least 1.3×, and `-autosplit` sets that margin), so short titles stay on one line
+and only long text wraps. `-autosplit 0` stops the automatic split altogether,
+and `-fontsize N` forces a fixed font size. A `\n` skips the judgement: the
+lines are used as given, and two is as many as this label takes.
 
 ## Why text only?
 
@@ -267,7 +271,8 @@ and sizes/positions it to fill the label.
             revision)
 -idle SEC   session mode idle timeout (default 600 = 10 minutes)
 -once       with TEXT: print that label and exit, do not stay for more
--lines N    maximum text lines (default 2)
+-autosplit F split only when the two-line font is at least F times bigger
+            (default 1.3; 0 = never split on its own, a `\n` still breaks)
 -status     show the printer status (model, battery, paper) and exit
 -auto-off N set the printer's auto power-off timer to N minutes (N >= 1; leave
             the flag out to change nothing). The printer keeps it until changed.

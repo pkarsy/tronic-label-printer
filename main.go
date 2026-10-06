@@ -92,10 +92,19 @@ const (
 	// are hard to read.
 	minSplitRunes = 3
 
-	// A two-line layout is used only when its font is at least this much bigger
-	// than the single-line font; otherwise the text stays on one line. This
-	// keeps short titles (e.g. two words) on a single line.
-	twoLineMinGain = 1.5
+	// Two lines is what this label takes: the head is 96 dots across, so a third
+	// line halves the font again and stops being worth printing. The automatic
+	// split stays within it, and a text asking for more is refused.
+	maxTextLines = 2
+
+	// Default for -autosplit: a two-line layout is used only when its font is at
+	// least this much bigger than the single-line font, otherwise the text stays
+	// on one line, which keeps short titles (e.g. two words) on a single line.
+	// Measured against this printer: the two-line font is always ~37 pt (two
+	// lines have to fit the 96-dot head), so the rule really says "split when the
+	// single line would come out under ~27 pt". -autosplit tunes it, and 0 turns
+	// the automatic split off; a '\n' in the text breaks the line regardless.
+	twoLineMinGain = 1.3
 )
 
 // Job enable/stop commands, SPECIFIC TO A MODEL FAMILY. This printer belongs to
@@ -145,7 +154,7 @@ type config struct {
 	labelLenMM float64
 	fontFile   string
 	label      bool
-	maxLines   int
+	autoSplit  float64
 }
 
 func main() {
@@ -157,7 +166,7 @@ func main() {
 	name := flag.String("btname", printerName, "Bluetooth Classic name to look up when -addr is empty; the printer's own name is fixed, so another name probably means a different revision")
 	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -btname)")
 	idle := flag.Int("idle", 600, "session mode: exit after N seconds without input")
-	maxLines := flag.Int("lines", 2, "maximum text lines (1 = never split in two)")
+	autoSplit := flag.Float64("autosplit", twoLineMinGain, "split only when the two-line font is at least this much bigger (0 = never split on its own)")
 	status := flag.Bool("status", false, "show printer status (model, battery, paper) and exit")
 	autoOff := flag.Int("auto-off", 0, "set the printer's auto power-off timer to N minutes (N >= 1); the printer keeps it until changed")
 	saveImage := flag.Bool("save-image", false, "one-shot mode: write the label as a .png here instead of printing")
@@ -169,7 +178,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [TEXT]\n", filepath.Base(os.Args[0]))
 		fmt.Fprintln(os.Stderr, "  Without TEXT: session mode - connects once and prints one label per stdin line.")
 		fmt.Fprintln(os.Stderr, "  With TEXT at a terminal: print it, then stay for more (-once, or a pipe, prints one and exits).")
-		fmt.Fprintln(os.Stderr, "  Text rules: a space (or a long word) allows a two-line split, used when it makes the font bigger; -lines 1 keeps one line.")
+		fmt.Fprintln(os.Stderr, "  Text rules: a space (or a long word) allows a two-line split, used when it makes the font bigger;")
+		fmt.Fprintln(os.Stderr, "     a '\\n' in the text breaks the line exactly there; -autosplit 0 never splits on its own.")
 		fmt.Fprintln(os.Stderr, "  -status: just report the printer's state (does not print a label).")
 		fmt.Fprintln(os.Stderr, "  -auto-off N: set the printer's auto power-off timer to N minutes (N >= 1) and exit.")
 		fmt.Fprintln(os.Stderr, "     A session holds the printer awake while it runs, so once you stop, a small value is fine.")
@@ -183,7 +193,7 @@ func main() {
 	}
 	flag.Parse()
 
-	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *label, *maxLines}
+	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *label, *autoSplit}
 
 	// -auto-off is a write, and 0 is NOT a way to ask for "never": the printer
 	// rejects it as a setting. Distinguish "not given" from "given 0" so a
@@ -200,6 +210,19 @@ func main() {
 		fmt.Println("       does not switch the printer off either.")
 		fmt.Println("       Use 5-15 when you keep coming back to the printer, or 1-2 for a")
 		fmt.Println("       print-and-shut-down setup.")
+		os.Exit(2)
+	}
+
+	// The same goes for a break that asks for more lines than a label takes.
+	// Session mode checks each text as it arrives (printText); this catches the
+	// text on the command line before any Bluetooth work.
+	if n := len(splitExplicit(strings.Join(flag.Args(), " "))); n > maxTextLines {
+		fmt.Printf("Error: the text asks for %d lines - this tool prints at most %d\n", n, maxTextLines)
+		os.Exit(2)
+	}
+	if *autoSplit < 0 {
+		fmt.Println("Error: -autosplit cannot be negative. Give the margin (e.g. 1.3), or 0 to")
+		fmt.Println("       turn the automatic two-line split off - a \\n in the text still breaks.")
 		os.Exit(2)
 	}
 
@@ -820,7 +843,7 @@ func (c *sppConn) waitDone(timeout time.Duration) bool {
 // height lands on the print head, i.e. across the label (96 dots = 12 mm),
 // and its length runs along the label.
 //
-// Two-line split (see -lines): the text is split at the best-balancing space if
+// Two-line split (see -autosplit): the text is split at the best-balancing space if
 // it has one, otherwise in the middle of the word, and the two-line layout is
 // used only when it gives a clearly bigger font (twoLineMinGain). A hyphen '-'
 // is the user's to type; there is no other special character.
@@ -856,12 +879,20 @@ func renderImage(cfg config, text string) (image.Image, error) {
 	}
 
 	lines := []string{text}
+	if explicit := splitExplicit(text); explicit != nil {
+		if len(explicit) > maxTextLines {
+			return nil, fmt.Errorf("the text asks for %d lines - this tool prints at most %d", len(explicit), maxTextLines)
+		}
+		lines = explicit
+	}
 	fs := cfg.fontSize
 	if fs <= 0 {
 		fs = fitFont(cfg, lines, measure)
-		if cfg.maxLines >= 2 {
+		// The automatic split only applies to a text that arrives as one line:
+		// an explicit break has already said what the layout should be.
+		if len(lines) == 1 && cfg.autoSplit > 0 {
 			if a, b := splitTwo(text, measure); b != "" {
-				if two := fitFont(cfg, []string{a, b}, measure); two > fs*twoLineMinGain {
+				if two := fitFont(cfg, []string{a, b}, measure); two > fs*cfg.autoSplit {
 					lines, fs = []string{a, b}, two
 				}
 			}
@@ -1221,6 +1252,26 @@ func fitFont(cfg config, lines []string, measure func(string, float64) (float64,
 		}
 	}
 	return fs
+}
+
+// splitExplicit splits TEXT at "\n" - the two characters backslash and n, which
+// is what a shell hands over for a quoted '\n'. It returns nil when the text
+// carries no break, leaving the caller to decide the layout as usual, and it
+// trims and drops empty pieces, so a break at either end costs nothing.
+func splitExplicit(text string) []string {
+	if !strings.Contains(text, `\n`) {
+		return nil
+	}
+	var lines []string
+	for _, part := range strings.Split(text, `\n`) {
+		if part = strings.TrimSpace(part); part != "" {
+			lines = append(lines, part)
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return lines
 }
 
 // splitTwo proposes splitting the text into two lines and returns the two
