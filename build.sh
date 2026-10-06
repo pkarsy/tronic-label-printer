@@ -6,8 +6,8 @@
 #                     feature this tool does not use, so disabling cgo costs
 #                     nothing.
 #   -ldflags="-s -w"  drop the symbol table and the DWARF debug info - this is
-#                     where essentially all of the saving comes from: 4.7 MB
-#                     plain -> 3.1 MB here, about a third
+#                     where essentially all of the saving comes from: 4.9 MB
+#                     plain -> 3.2 MB here, about a third
 #   -trimpath         keep this machine's source paths out of the binary, so it
 #                     does not leak where it was built (this does NOT shrink it
 #                     in any meaningful way; it is hygiene for a binary you hand

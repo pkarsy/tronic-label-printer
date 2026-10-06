@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,7 +22,10 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/fogleman/gg"
-	"github.com/golang/freetype/truetype"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/font/sfnt"
+	"golang.org/x/image/math/fixed"
 	"golang.org/x/sys/unix"
 )
 
@@ -142,7 +144,6 @@ type config struct {
 	fontSize   float64
 	labelLenMM float64
 	fontFile   string
-	fontName   string
 	label      bool
 	maxLines   int
 }
@@ -152,8 +153,6 @@ func main() {
 	fontSize := flag.Float64("fontsize", 0, "font size (0 = auto-fill the label)")
 	labelLenMM := flag.Float64("len", 30, "label length in mm (0 = fill width only)")
 	fontFile := flag.String("fontfile", "", "font file to use instead of the one found on the system")
-	fontName := flag.String("fontname", "", "system font family to use instead of the one found (its bold face)")
-	fontList := flag.Bool("fontlist", false, "list the system font families -fontname can use, and exit")
 	label := flag.Bool("label", true, "gapped tape: advance to the next label")
 	name := flag.String("btname", printerName, "Bluetooth Classic name to look up when -addr is empty; the printer's own name is fixed, so another name probably means a different revision")
 	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -btname)")
@@ -184,7 +183,7 @@ func main() {
 	}
 	flag.Parse()
 
-	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *fontName, *label, *maxLines}
+	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *label, *maxLines}
 
 	// -auto-off is a write, and 0 is NOT a way to ask for "never": the printer
 	// rejects it as a setting. Distinguish "not given" from "given 0" so a
@@ -204,29 +203,15 @@ func main() {
 		os.Exit(2)
 	}
 
-	// -fontlist is a report, like -status: it needs no printer and no font of
-	// its own, so it answers before anything else is looked at.
-	if *fontList {
-		if err := listFonts(); err != nil {
+	// A bad -fontfile is the user's own mistake, and it can be reported before
+	// anything talks to the printer - otherwise the tool would scan, connect and
+	// only then refuse to draw. Only checked when the flag is given: a plain run
+	// should not need fontconfig at all.
+	if *fontFile != "" {
+		if _, err := resolveFont(*fontFile); err != nil {
 			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// A bad -fontfile/-fontname is the user's own mistake, and both can be
-	// reported before anything talks to the printer - otherwise the tool would
-	// scan, connect and only then refuse to draw. Only asked for when an
-	// override is given: a plain run should not need fontconfig at all.
-	if *fontFile != "" && *fontName != "" {
-		fmt.Println("Error: give either -fontfile (a file) or -fontname (a system font), not both.")
-		os.Exit(2)
-	}
-	if *fontFile != "" || *fontName != "" {
-		if _, err := resolveFont(*fontFile, *fontName); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("       A TrueType .ttf works; a .ttc collection does not (the font parser")
-			fmt.Println("       cannot read one). With neither flag, the font is found on the system.")
+			fmt.Println("       The font file itself is the problem: some files carry a table this")
+			fmt.Println("       tool's parser refuses. Try another file.")
 			os.Exit(2)
 		}
 	}
@@ -844,20 +829,26 @@ func (c *sppConn) waitDone(timeout time.Duration) bool {
 // the label. renderLabel turns this bitmap into bytes and -save-image writes it
 // out as a PNG, so the picture and the print agree by construction.
 func renderImage(cfg config, text string) (image.Image, error) {
-	fontPath, err := resolveFont(cfg.fontFile, cfg.fontName)
+	fontPath, err := resolveFont(cfg.fontFile)
 	if err != nil {
 		return nil, err
+	}
+	f, err := fontFor(fontPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the font %s: %w", fontPath, err)
 	}
 
 	// Width from gg (its advances match what it draws), but height from the
 	// font itself - gg reports a line height that is far too small.
 	measure := func(s string, fs float64) (w, h float64, err error) {
-		c := gg.NewContext(1, 1)
-		if err := c.LoadFontFace(fontPath, fs); err != nil {
+		face, err := fontFace(f, fs)
+		if err != nil {
 			return 0, 0, err
 		}
+		c := gg.NewContext(1, 1)
+		c.SetFontFace(face)
 		w, _ = c.MeasureString(s)
-		ascent, descent, err := fontMetrics(fontPath, fs)
+		ascent, descent, err := fontMetrics(f, fs)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -907,16 +898,20 @@ func renderImage(cfg config, text string) (image.Image, error) {
 
 	// Place the baseline one ascent below the top of each line box, so the ink
 	// (ascender..descender) sits inside the box instead of hanging out of it.
-	ascent, _, err := fontMetrics(fontPath, fs)
+	ascent, _, err := fontMetrics(f, fs)
 	if err != nil {
 		return nil, fmt.Errorf("font metrics: %w", err)
 	}
 
+	face, err := fontFace(f, fs)
+	if err != nil {
+		return nil, fmt.Errorf("font face: %w", err)
+	}
 	dc := gg.NewContext(cw, ch)
 	dc.SetColor(color.White)
 	dc.Clear()
 	dc.SetColor(color.Black)
-	_ = dc.LoadFontFace(fontPath, fs)
+	dc.SetFontFace(face)
 
 	// Centre every line: horizontally on the label, vertically in its own box.
 	for i, ln := range lines {
@@ -1075,117 +1070,22 @@ var fontCandidates = []string{
 	"/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
 }
 
-// listFonts prints the font families -fontname can use, one per line, so a name
-// can be copied straight out of it. They come from fontconfig (fc-list), minus
-// the families whose faces are all .ttc collections: -fontname refuses those, and
-// offering a name that cannot work is worse than leaving it out.
-func listFonts() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "fc-list", "-f", "%{family}\t%{file}\n").Output()
-	if err != nil {
-		return fmt.Errorf("cannot list the fonts (fc-list): %w", err)
-	}
-	files := map[string]map[string]bool{}
-	for _, line := range strings.Split(string(out), "\n") {
-		family, file, ok := strings.Cut(line, "\t")
-		file = strings.TrimSpace(file)
-		if !ok || file == "" {
-			continue
-		}
-		// A family can answer with several names (localizations).
-		for _, name := range strings.Split(family, ",") {
-			if name = strings.TrimSpace(name); name == "" {
-				continue
-			}
-			if files[name] == nil {
-				files[name] = map[string]bool{}
-			}
-			files[name][file] = true
-		}
-	}
-	names := make([]string, 0, len(files))
-	for name, set := range files {
-		for f := range set {
-			if !strings.HasSuffix(strings.ToLower(f), ".ttc") {
-				names = append(names, name)
-				break
-			}
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		fmt.Println(name)
-	}
-	return nil
-}
-
-// resolveFont returns the font file to render with: -fontfile's file,
-// -fontname's family resolved through fontconfig, or otherwise the first place
-// on the system that has one (findFont). The result is resolved once per
-// process, so a session does not pay for the lookup per label.
-func resolveFont(explicitFile, explicitName string) (string, error) {
+// resolveFont returns the font file to render with: -fontfile's file if given,
+// otherwise the first place on the system that has one (findFont). The result is
+// resolved once per process, so a session does not pay for the lookup per label.
+func resolveFont(explicitFile string) (string, error) {
 	fontOnce.Do(func() {
-		switch {
-		case explicitFile != "":
+		if explicitFile != "" {
 			if err := loadFontFile(explicitFile); err != nil {
 				fontErr = fmt.Errorf("cannot use -fontfile %s: %w", explicitFile, err)
 				return
 			}
 			fontPath = explicitFile
-		case explicitName != "":
-			fontPath, fontErr = fontFromName(explicitName)
-		default:
-			fontPath, fontErr = findFont()
+			return
 		}
+		fontPath, fontErr = findFont()
 	})
 	return fontPath, fontErr
-}
-
-// fontFromName resolves a family name the way any other program on the system
-// would: fc-match reads the fontconfig cache that fc-cache builds, so this sees
-// whatever fontconfig sees, user fonts in ~/.fonts included.
-//
-// A name fontconfig does not have is an ERROR, not a silent substitution:
-// asking for a family that is not installed would otherwise render the label in
-// whatever fontconfig fell back to, which is precisely what the user asked to
-// avoid.
-func fontFromName(name string) (string, error) {
-	pattern := name
-	if !strings.Contains(pattern, ":") {
-		// The labels are tiny and bold is what they are printed in, so ask for
-		// the bold face unless the name already names a style.
-		pattern += ":bold"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "fc-match", "-f", "%{file}\t%{family}", pattern).Output()
-	if err != nil {
-		return "", fmt.Errorf("cannot ask fontconfig for %q: %w", name, err)
-	}
-	file, family, _ := strings.Cut(strings.TrimSpace(string(out)), "\t")
-	want := name
-	if i := strings.Index(want, ":"); i >= 0 {
-		want = want[:i]
-	}
-	if file == "" || !listsFamily(family, want) {
-		return "", fmt.Errorf("fontconfig has no font named %q (it would substitute %s); `label -fontlist` lists the names that work", name, file)
-	}
-	if err := loadFontFile(file); err != nil {
-		return "", fmt.Errorf("the font %q is %s, which cannot be read: %w", name, file, err)
-	}
-	return file, nil
-}
-
-// listsFamily reports whether the comma-separated family list fc-match answered
-// with includes want.
-func listsFamily(list, want string) bool {
-	for _, f := range strings.Split(list, ",") {
-		if strings.EqualFold(strings.TrimSpace(f), strings.TrimSpace(want)) {
-			return true
-		}
-	}
-	return false
 }
 
 var (
@@ -1229,15 +1129,53 @@ func runFcMatch() ([]byte, error) {
 	return exec.CommandContext(ctx, "fc-match", "-a", "-f", "%{file}\n", "sans:bold").Output()
 }
 
-// loadFontFile reports whether the file is there and parses. It is the same
-// check gg and fontMetrics make, so a font accepted here cannot fail later.
-func loadFontFile(path string) error {
+// fontFor parses a font file once per process and hands back the parsed font.
+// Collections (.ttc) are read through their first face.
+func fontFor(path string) (*sfnt.Font, error) {
+	parseOnce.Do(func() { parsedFont, parseErr = parseFontFile(path) })
+	return parsedFont, parseErr
+}
+
+var (
+	parseOnce  sync.Once
+	parsedFont *sfnt.Font
+	parseErr   error
+)
+
+// parseFontFile reads a font with golang.org/x/image/font/sfnt, which is what
+// actually renders here. It is deliberately not the older freetype parser: that
+// one refuses a font outright over a table it cannot read - a .ttc collection,
+// and .ttf files whose kern table length does not match its pair count, which is
+// how Calibri, Cambria and Constantia from the msttcorefonts/vistafonts sets get
+// rejected despite rendering perfectly well elsewhere.
+func parseFontFile(path string) (*sfnt.Font, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = truetype.Parse(b)
+	f, err := sfnt.Parse(b)
+	if err == nil {
+		return f, nil
+	}
+	// A collection: take its first face rather than failing.
+	c, cerr := sfnt.ParseCollection(b)
+	if cerr != nil || c.NumFonts() == 0 {
+		return nil, err
+	}
+	return c.Font(0)
+}
+
+// loadFontFile reports whether the file is there and parses. It is the same
+// check the renderer makes, so a font accepted here cannot fail later.
+func loadFontFile(path string) error {
+	_, err := parseFontFile(path)
 	return err
+}
+
+// fontFace builds the face to measure and draw with. DPI 72 keeps points equal
+// to pixels, which is what every size in this tool means.
+func fontFace(f *sfnt.Font, size float64) (font.Face, error) {
+	return opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
 }
 
 // fontMetrics returns the font's REAL ascent and descent at this size. gg's
@@ -1245,18 +1183,12 @@ func loadFontFile(path string) error {
 // font actually needs ~70, so a box built from it is too short and clips every
 // descender ("g" came out as "o" with a stub). These two numbers are what make
 // the line box, and the baseline inside it, come out right.
-func fontMetrics(fontPath string, size float64) (ascent, descent float64, err error) {
-	b, err := os.ReadFile(fontPath)
+func fontMetrics(f *sfnt.Font, size float64) (ascent, descent float64, err error) {
+	var buf sfnt.Buffer
+	m, err := f.Metrics(&buf, fixed.Int26_6(size*64), font.HintingNone)
 	if err != nil {
 		return 0, 0, err
 	}
-	f, err := truetype.Parse(b)
-	if err != nil {
-		return 0, 0, err
-	}
-	// Same options gg uses in LoadFontFace (DPI 72), so the sizes agree.
-	face := truetype.NewFace(f, &truetype.Options{Size: size, DPI: 72})
-	m := face.Metrics()
 	return float64(m.Ascent) / 64, float64(m.Descent) / 64, nil
 }
 
