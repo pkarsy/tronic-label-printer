@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,6 +142,7 @@ type config struct {
 	fontSize   float64
 	labelLenMM float64
 	fontFile   string
+	fontName   string
 	label      bool
 	maxLines   int
 }
@@ -150,6 +152,8 @@ func main() {
 	fontSize := flag.Float64("fontsize", 0, "font size (0 = auto-fill the label)")
 	labelLenMM := flag.Float64("len", 30, "label length in mm (0 = fill width only)")
 	fontFile := flag.String("fontfile", "", "font file to use instead of the one found on the system")
+	fontName := flag.String("fontname", "", "system font family to use instead of the one found (its bold face)")
+	fontList := flag.Bool("fontlist", false, "list the system font families -fontname can use, and exit")
 	label := flag.Bool("label", true, "gapped tape: advance to the next label")
 	name := flag.String("btname", printerName, "Bluetooth Classic name to look up when -addr is empty; the printer's own name is fixed, so another name probably means a different revision")
 	addr := flag.String("addr", "", "Bluetooth Classic address (default: look up -btname)")
@@ -181,7 +185,7 @@ func main() {
 	}
 	flag.Parse()
 
-	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *label, *maxLines}
+	cfg := config{*width, *fontSize, *labelLenMM, *fontFile, *fontName, *label, *maxLines}
 
 	// -auto-off is a write, and 0 is NOT a way to ask for "never": the printer
 	// rejects it as a setting. Distinguish "not given" from "given 0" so a
@@ -201,14 +205,29 @@ func main() {
 		os.Exit(2)
 	}
 
-	// A bad -fontfile is the user's own mistake, and it can be reported before
-	// anything talks to the printer - otherwise the tool would scan, connect and
-	// only then refuse to draw.
-	if *fontFile != "" {
-		if err := loadFontFile(*fontFile); err != nil {
-			fmt.Printf("Error: cannot use -fontfile %s: %v\n", *fontFile, err)
+	// -fontlist is a report, like -status: it needs no printer and no font of
+	// its own, so it answers before anything else is looked at.
+	if *fontList {
+		if err := listFonts(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// A bad -fontfile/-fontname is the user's own mistake, and both can be
+	// reported before anything talks to the printer - otherwise the tool would
+	// scan, connect and only then refuse to draw. Only asked for when an
+	// override is given: a plain run should not need fontconfig at all.
+	if *fontFile != "" && *fontName != "" {
+		fmt.Println("Error: give either -fontfile (a file) or -fontname (a system font), not both.")
+		os.Exit(2)
+	}
+	if *fontFile != "" || *fontName != "" {
+		if _, err := resolveFont(*fontFile, *fontName); err != nil {
+			fmt.Printf("Error: %v\n", err)
 			fmt.Println("       A TrueType .ttf works; a .ttc collection does not (the font parser")
-			fmt.Println("       cannot read one). With no -fontfile, the font is found on the system.")
+			fmt.Println("       cannot read one). With neither flag, the font is found on the system.")
 			os.Exit(2)
 		}
 	}
@@ -826,7 +845,7 @@ func (c *sppConn) waitDone(timeout time.Duration) bool {
 // the label. renderLabel turns this bitmap into bytes and -save-image writes it
 // out as a PNG, so the picture and the print agree by construction.
 func renderImage(cfg config, text string) (image.Image, error) {
-	fontPath, err := resolveFont(cfg.fontFile)
+	fontPath, err := resolveFont(cfg.fontFile, cfg.fontName)
 	if err != nil {
 		return nil, err
 	}
@@ -1057,18 +1076,117 @@ var fontCandidates = []string{
 	"/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
 }
 
-// resolveFont returns the font file to render with: -fontfile if given,
-// otherwise the first place on the system that has one (findFont). The result is
-// resolved once per process, so a session does not pay for the lookup per label.
-func resolveFont(explicit string) (string, error) {
-	if explicit != "" {
-		if err := loadFontFile(explicit); err != nil {
-			return "", fmt.Errorf("cannot use -fontfile %s: %w", explicit, err)
-		}
-		return explicit, nil
+// listFonts prints the font families -fontname can use, one per line, so a name
+// can be copied straight out of it. They come from fontconfig (fc-list), minus
+// the families whose faces are all .ttc collections: -fontname refuses those, and
+// offering a name that cannot work is worse than leaving it out.
+func listFonts() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "fc-list", "-f", "%{family}\t%{file}\n").Output()
+	if err != nil {
+		return fmt.Errorf("cannot list the fonts (fc-list): %w", err)
 	}
-	fontOnce.Do(func() { fontPath, fontErr = findFont() })
+	files := map[string]map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		family, file, ok := strings.Cut(line, "\t")
+		file = strings.TrimSpace(file)
+		if !ok || file == "" {
+			continue
+		}
+		// A family can answer with several names (localizations).
+		for _, name := range strings.Split(family, ",") {
+			if name = strings.TrimSpace(name); name == "" {
+				continue
+			}
+			if files[name] == nil {
+				files[name] = map[string]bool{}
+			}
+			files[name][file] = true
+		}
+	}
+	names := make([]string, 0, len(files))
+	for name, set := range files {
+		for f := range set {
+			if !strings.HasSuffix(strings.ToLower(f), ".ttc") {
+				names = append(names, name)
+				break
+			}
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Println(name)
+	}
+	return nil
+}
+
+// resolveFont returns the font file to render with: -fontfile's file,
+// -fontname's family resolved through fontconfig, or otherwise the first place
+// on the system that has one (findFont). The result is resolved once per
+// process, so a session does not pay for the lookup per label.
+func resolveFont(explicitFile, explicitName string) (string, error) {
+	fontOnce.Do(func() {
+		switch {
+		case explicitFile != "":
+			if err := loadFontFile(explicitFile); err != nil {
+				fontErr = fmt.Errorf("cannot use -fontfile %s: %w", explicitFile, err)
+				return
+			}
+			fontPath = explicitFile
+		case explicitName != "":
+			fontPath, fontErr = fontFromName(explicitName)
+		default:
+			fontPath, fontErr = findFont()
+		}
+	})
 	return fontPath, fontErr
+}
+
+// fontFromName resolves a family name the way any other program on the system
+// would: fc-match reads the fontconfig cache that fc-cache builds, so this sees
+// whatever fontconfig sees, user fonts in ~/.fonts included.
+//
+// A name fontconfig does not have is an ERROR, not a silent substitution:
+// asking for a family that is not installed would otherwise render the label in
+// whatever fontconfig fell back to, which is precisely what the user asked to
+// avoid.
+func fontFromName(name string) (string, error) {
+	pattern := name
+	if !strings.Contains(pattern, ":") {
+		// The labels are tiny and bold is what they are printed in, so ask for
+		// the bold face unless the name already names a style.
+		pattern += ":bold"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "fc-match", "-f", "%{file}\t%{family}", pattern).Output()
+	if err != nil {
+		return "", fmt.Errorf("cannot ask fontconfig for %q: %w", name, err)
+	}
+	file, family, _ := strings.Cut(strings.TrimSpace(string(out)), "\t")
+	want := name
+	if i := strings.Index(want, ":"); i >= 0 {
+		want = want[:i]
+	}
+	if file == "" || !listsFamily(family, want) {
+		return "", fmt.Errorf("fontconfig has no font named %q (it would substitute %s); `label -fontlist` lists the names that work", name, file)
+	}
+	if err := loadFontFile(file); err != nil {
+		return "", fmt.Errorf("the font %q is %s, which cannot be read: %w", name, file, err)
+	}
+	return file, nil
+}
+
+// listsFamily reports whether the comma-separated family list fc-match answered
+// with includes want.
+func listsFamily(list, want string) bool {
+	for _, f := range strings.Split(list, ",") {
+		if strings.EqualFold(strings.TrimSpace(f), strings.TrimSpace(want)) {
+			return true
+		}
+	}
+	return false
 }
 
 var (
