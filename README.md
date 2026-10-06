@@ -189,7 +189,8 @@ Nor does the charger change anything else — the auto-off timer runs while it i
 plugged in too, so being on charge is no reason to expect it awake.
 
 The printer's own settings are here too: the auto-off timer shown above is read
-by `-status` and changed with `-auto-off N`.
+by `-status` and changed with `-auto-off N`, and the printer keeps it until
+changed.
 
 ### Text rules
 
@@ -257,8 +258,9 @@ and sizes/positions it to fill the label.
 -lines N    maximum text lines (default 2)
 -status     show the printer status (model, battery, paper) and exit
 -auto-off N set the printer's auto power-off timer to N minutes (N >= 1; leave
-            the flag out to change nothing). A small value = print and let it
-            shut itself down; 5-15 min suits a session you keep coming back to.
+            the flag out to change nothing). The printer keeps it until changed.
+            A small value = print and let it shut itself down; 5-15 min suits a
+            session you keep coming back to.
 -save-image with TEXT: write the label as a .png here instead of printing
 -border     with -save-image: one-pixel black frame around the image
 -scale N    with -save-image: enlarge by N (1-16), nearest neighbour
